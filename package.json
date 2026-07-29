@@ -3,24 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "tsx src/cron.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/alio/mapper.test.ts src/alio/client.test.ts src/alio/date-range.test.ts src/scheduler.test.ts",
+    "healthcheck": "tsx src/healthcheck.ts",
+    "cron": "tsx src/cron.ts",
+    "cron:once": "tsx src/run-once.ts",
+    "sync:active": "tsx src/run-once.ts alio-active-sync",
+    "sync:recent-history": "tsx src/run-once.ts alio-recent-history-sync",
+    "sync:history-backfill": "tsx src/run-once.ts alio-history-backfill"
   },
   "dependencies": {
-    "next": "16.2.12",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "dotenv": "^17.4.2",
+    "node-cron": "^4.6.0",
+    "pg": "^8.22.0",
+    "tsx": "^4.23.1"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.12",
-    "tailwindcss": "^4",
+    "@types/pg": "^8.20.0",
     "typescript": "^5"
   }
 }
