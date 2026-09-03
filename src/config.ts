@@ -137,7 +137,7 @@ export const env = Object.freeze({
     true,
   ),
   jobDeadlineNotificationSchedule:
-    process.env.JOB_DEADLINE_NOTIFICATION_SCHEDULE?.trim() ?? "0 8 * * *",
+    process.env.JOB_DEADLINE_NOTIFICATION_SCHEDULE?.trim() ?? "0 9 * * *",
   jobDeadlineNotificationTimezone:
     process.env.JOB_DEADLINE_NOTIFICATION_TIMEZONE?.trim() ?? "Asia/Seoul",
   jobDeadlineNotificationRunOnStart: booleanValue(

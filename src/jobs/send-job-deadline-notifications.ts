@@ -93,6 +93,7 @@ export async function sendJobDeadlineNotifications(
     for (const row of candidates.rows) {
       const targetPath = `/jobs/${row.job_posting_id}`;
       const sourceId = `job_deadline:${row.job_posting_id}:${targetDate}:${row.offset_days}`;
+      const title = buildDeadlineTitle(row);
       const message = buildDeadlineAlimtalkMessage(row);
       const body = buildDeadlineNotificationBody(row);
       const payload = {
@@ -140,7 +141,7 @@ export async function sendJobDeadlineNotifications(
             'pending',
             NOW()
           )
-          ON CONFLICT (source_key) DO NOTHING
+          ON CONFLICT (source_key) WHERE source_key IS NOT NULL DO NOTHING
           RETURNING id
         `,
         [
@@ -148,7 +149,7 @@ export async function sendJobDeadlineNotifications(
           row.job_posting_id,
           row.recipient,
           env.jobDeadlineNotificationTemplateCode || null,
-          "찜한 공고 접수 마감 임박",
+          title,
           body,
           message,
           targetPath,
@@ -166,7 +167,7 @@ export async function sendJobDeadlineNotifications(
         const alimtalk = await sendAlimtalk({
           recipientPhone: row.recipient,
           templateCode: env.jobDeadlineNotificationTemplateCode,
-          title: "찜한 공고 접수 마감 임박",
+          title,
           message,
           targetPath,
           buttonName: "공고 확인하기",
@@ -226,7 +227,7 @@ export async function sendJobDeadlineNotifications(
           `,
           [
             row.user_id,
-            "찜한 공고 접수 마감 임박",
+            title,
             body,
             targetPath,
             JSON.stringify(payload),
@@ -318,27 +319,29 @@ export async function sendJobDeadlineNotifications(
 
 function buildDeadlineNotificationBody(row: CandidateRow) {
   const jobTitle = buildJobTitle(row);
-  const deadlineLabel =
-    row.offset_days === 0 ? "오늘" : `${row.offset_days}일 후`;
 
-  return `찜한 ${jobTitle} 지원 마감이 ${deadlineLabel}이에요.`;
+  return `알림 신청하신 [${jobTitle}] 공고의 마감일까지 ${row.offset_days}일 남았습니다.`;
+}
+
+function buildDeadlineTitle(row: CandidateRow) {
+  return `공고 마감 D-${row.offset_days} 안내`;
 }
 
 function buildDeadlineAlimtalkMessage(row: CandidateRow) {
-  const offsetLabel =
-    row.offset_days === 0 ? "오늘" : `${row.offset_days}일 후`;
+  const jobTitle = buildJobTitle(row);
+  const remainingDays = String(row.offset_days);
 
   return [
-    "[공고 마감 임박 안내]",
+    `[공고 마감 D-${remainingDays} 안내]`,
     "",
     `${row.user_name || "회원"}님, 안녕하세요.`,
+    `알림 신청하신 [${jobTitle}] 공고의 마감일까지`,
+    `${remainingDays}일 남아 안내드립니다.`,
     "",
-    `찜한 공고의 지원 마감이 ${offsetLabel}입니다.`,
+    `공고명: ${jobTitle}`,
+    `마감일시: ${formatKoreanDeadline(row.application_end_at)}`,
     "",
-    `공고: ${buildJobTitle(row)}`,
-    `마감: ${formatKoreanDeadline(row.application_end_at)}`,
-    "",
-    "아래 버튼을 눌러 내용을 확인해 주세요.",
+    "자세한 공고 내용과 마감일정을 확인해 주세요.",
   ].join("\n");
 }
 
@@ -349,15 +352,19 @@ function buildJobTitle(row: CandidateRow) {
 function formatKoreanDeadline(value: Date | string) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("ko-KR", {
+  const parts = new Intl.DateTimeFormat("ko-KR", {
     timeZone: env.jobDeadlineNotificationTimezone,
-    month: "long",
-    day: "numeric",
-    weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(date);
+  }).formatToParts(date);
+  const valueOf = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${valueOf("year")}.${valueOf("month")}.${valueOf("day")} ${valueOf("hour")}:${valueOf("minute")}`;
 }
 
 function toTimezoneDateString(date: Date, timezone: string) {

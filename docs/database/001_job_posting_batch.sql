@@ -139,3 +139,162 @@ GROUP BY s.job_posting_id;
 CREATE INDEX IF NOT EXISTS idx_diagnosis_recommended_result_score
     ON public.diagnosis_recommended_job_postings
        (diagnosis_result_id, match_score DESC, job_posting_id);
+
+-- ---------------------------------------------------------------------------
+-- 6) 공고 마감 알림톡 발송/알림 이력
+-- ---------------------------------------------------------------------------
+
+-- job-deadline-notification은 테이블명이 아니라 crontab 작업명이다.
+-- 아래 테이블들은 해당 작업의 실행 이력, 중복 방지, 화면 알림 저장에 사용된다.
+
+DO $$
+BEGIN
+    CREATE TYPE public.notification_channel AS ENUM
+        ('in_app', 'kakao', 'kakao_alimtalk', 'email', 'sms', 'push');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+    ALTER TYPE public.notification_channel ADD VALUE IF NOT EXISTS 'kakao_alimtalk';
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.notification_preferences (
+    user_id uuid PRIMARY KEY REFERENCES public.users(id),
+    application_deadline_enabled boolean DEFAULT true NOT NULL,
+    application_deadline_days_before int4 DEFAULT 3 NOT NULL,
+    application_deadline_days_before_list int4[] DEFAULT ARRAY[3]::int4[] NOT NULL,
+    tailored_job_enabled boolean DEFAULT true NOT NULL,
+    marketing_enabled boolean DEFAULT false NOT NULL,
+    marketing_agreed_at timestamptz NULL,
+    marketing_revoked_at timestamptz NULL,
+    kakao_enabled boolean DEFAULT false NOT NULL,
+    kakao_connected_at timestamptz NULL,
+    email_enabled boolean DEFAULT false NOT NULL,
+    push_enabled boolean DEFAULT true NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now() NOT NULL
+);
+
+ALTER TABLE public.notification_preferences
+    ADD COLUMN IF NOT EXISTS application_deadline_enabled boolean DEFAULT true NOT NULL,
+    ADD COLUMN IF NOT EXISTS application_deadline_days_before int4 DEFAULT 3 NOT NULL,
+    ADD COLUMN IF NOT EXISTS application_deadline_days_before_list int4[] DEFAULT ARRAY[3]::int4[] NOT NULL,
+    ADD COLUMN IF NOT EXISTS marketing_agreed_at timestamptz NULL,
+    ADD COLUMN IF NOT EXISTS marketing_revoked_at timestamptz NULL,
+    ADD COLUMN IF NOT EXISTS kakao_connected_at timestamptz NULL,
+    ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now() NOT NULL;
+
+CREATE TABLE IF NOT EXISTS public.notification_dispatch_runs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    job_name varchar(120) NOT NULL,
+    status varchar(20) DEFAULT 'running' NOT NULL,
+    target_date date NULL,
+    started_at timestamptz DEFAULT now() NOT NULL,
+    completed_at timestamptz NULL,
+    queued_count int4 DEFAULT 0 NOT NULL,
+    skipped_count int4 DEFAULT 0 NOT NULL,
+    error_message text NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT notification_dispatch_runs_pkey PRIMARY KEY (id),
+    CONSTRAINT notification_dispatch_runs_status_check
+        CHECK (status IN ('running', 'succeeded', 'failed', 'skipped')),
+    CONSTRAINT notification_dispatch_runs_counts_check
+        CHECK (queued_count >= 0 AND skipped_count >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_dispatch_runs_job_started
+    ON public.notification_dispatch_runs (job_name, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_notification_dispatch_runs_target
+    ON public.notification_dispatch_runs (job_name, target_date DESC);
+
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL REFERENCES public.users(id),
+    channel public.notification_channel DEFAULT 'in_app' NOT NULL,
+    category varchar(40) DEFAULT 'notice' NOT NULL,
+    kind varchar(80) NULL,
+    title varchar(255) NOT NULL,
+    body text NOT NULL,
+    target_path text NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    source_type varchar(80) NULL,
+    source_id text NULL,
+    read_at timestamptz NULL,
+    sent_at timestamptz NULL,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT notifications_pkey PRIMARY KEY (id)
+);
+
+ALTER TABLE public.notifications
+    ADD COLUMN IF NOT EXISTS category varchar(40) DEFAULT 'notice' NOT NULL,
+    ADD COLUMN IF NOT EXISTS kind varchar(80) NULL,
+    ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    ADD COLUMN IF NOT EXISTS source_type varchar(80) NULL,
+    ADD COLUMN IF NOT EXISTS source_id text NULL,
+    ADD COLUMN IF NOT EXISTS sent_at timestamptz NULL;
+
+CREATE TABLE IF NOT EXISTS public.notification_dispatch_queue (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    job_posting_id uuid REFERENCES public.job_postings(id) ON DELETE CASCADE,
+    channel public.notification_channel NOT NULL,
+    purpose varchar(80) NULL,
+    recipient varchar(30) NULL,
+    template_code varchar(80) NULL,
+    title varchar(255) NOT NULL,
+    body text NOT NULL,
+    message text NULL,
+    target_path text NULL,
+    source_key varchar(255) NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status varchar(30) DEFAULT 'pending' NOT NULL,
+    scheduled_at timestamptz DEFAULT now() NOT NULL,
+    locked_at timestamptz NULL,
+    sent_at timestamptz NULL,
+    failed_at timestamptz NULL,
+    failure_reason text NULL,
+    attempt_count int4 DEFAULT 0 NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT notification_dispatch_queue_pkey PRIMARY KEY (id),
+    CONSTRAINT notification_dispatch_queue_status_check
+        CHECK (status IN ('pending', 'processing', 'sent', 'failed', 'cancelled')),
+    CONSTRAINT notification_dispatch_queue_attempt_count_check
+        CHECK (attempt_count >= 0)
+);
+
+ALTER TABLE public.notification_dispatch_queue
+    ADD COLUMN IF NOT EXISTS job_posting_id uuid REFERENCES public.job_postings(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS purpose varchar(80) NULL,
+    ADD COLUMN IF NOT EXISTS recipient varchar(30) NULL,
+    ADD COLUMN IF NOT EXISTS template_code varchar(80) NULL,
+    ADD COLUMN IF NOT EXISTS message text NULL,
+    ADD COLUMN IF NOT EXISTS source_key varchar(255) NULL;
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_created
+    ON public.notifications (user_id, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS notifications_user_source_unique_idx
+    ON public.notifications (user_id, source_type, source_id)
+    WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_category_created
+    ON public.notifications (user_id, category, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_notification_dispatch_queue_pending
+    ON public.notification_dispatch_queue (scheduled_at, created_at)
+    WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_notification_dispatch_queue_user_created
+    ON public.notification_dispatch_queue (user_id, created_at DESC)
+    WHERE user_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_notification_dispatch_queue_status_created
+    ON public.notification_dispatch_queue (status, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS notification_dispatch_queue_source_key_unique_idx
+    ON public.notification_dispatch_queue (source_key)
+    WHERE source_key IS NOT NULL;
