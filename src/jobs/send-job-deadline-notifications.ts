@@ -169,7 +169,7 @@ export async function sendJobDeadlineNotifications(
           title: "찜한 공고 접수 마감 임박",
           message,
           targetPath,
-          buttonName: "공고 확인",
+          buttonName: "공고 확인하기",
         });
 
         if (!alimtalk.sent) {
