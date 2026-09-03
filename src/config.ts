@@ -132,4 +132,49 @@ export const env = Object.freeze({
     120_000,
   ),
   requestRetries: integerValue("ALIO_REQUEST_RETRIES", 3, 0, 10),
+  jobDeadlineNotificationEnabled: booleanValue(
+    "JOB_DEADLINE_NOTIFICATION_ENABLED",
+    true,
+  ),
+  jobDeadlineNotificationSchedule:
+    process.env.JOB_DEADLINE_NOTIFICATION_SCHEDULE?.trim() ?? "0 8 * * *",
+  jobDeadlineNotificationTimezone:
+    process.env.JOB_DEADLINE_NOTIFICATION_TIMEZONE?.trim() ?? "Asia/Seoul",
+  jobDeadlineNotificationRunOnStart: booleanValue(
+    "JOB_DEADLINE_NOTIFICATION_RUN_ON_START",
+    false,
+  ),
+  jobDeadlineNotificationTemplateCode:
+    process.env.NEXT_PRIVATE_GONGBUEONG_JOB_DEADLINE_TEMPLATE_KEY?.trim() ||
+    process.env.JOB_DEADLINE_NOTIFICATION_TEMPLATE_CODE?.trim() ||
+    "",
+  alimtalkSenderKey:
+    process.env.NEXT_PRIVATE_GONGBUEONG_ALIMTALK_KEY?.trim() || "",
+  alimtalkSmsSenderNumber:
+    process.env.NEXT_PRIVATE_GONGBUEONG_ALIMTALK_SMS_SENDER_NUMBER?.trim() ||
+    "02-1577-9577",
+  mainUrl:
+    process.env.NEXT_PUBLIC_SHARE_BASE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_FRONTEND_URL?.trim() ||
+    process.env.FRONTEND_URL?.trim() ||
+    process.env.GONGBUEONG_MAIN_URL?.trim() ||
+    "https://gongbueong.career.co.kr",
+  userWithdrawalPurgeEnabled: booleanValue(
+    "USER_WITHDRAWAL_PURGE_ENABLED",
+    true,
+  ),
+  userWithdrawalPurgeSchedule:
+    process.env.USER_WITHDRAWAL_PURGE_SCHEDULE?.trim() ?? "0 * * * *",
+  userWithdrawalPurgeTimezone:
+    process.env.USER_WITHDRAWAL_PURGE_TIMEZONE?.trim() ?? "Asia/Seoul",
+  userWithdrawalPurgeRunOnStart: booleanValue(
+    "USER_WITHDRAWAL_PURGE_RUN_ON_START",
+    false,
+  ),
+  userWithdrawalPurgeBatchSize: integerValue(
+    "USER_WITHDRAWAL_PURGE_BATCH_SIZE",
+    100,
+    1,
+    1000,
+  ),
 });

@@ -5,6 +5,8 @@ import {
   syncAlioActivePostings,
   syncAlioRecentHistory,
 } from "./sync-alio-job-postings";
+import { sendJobDeadlineNotifications } from "./send-job-deadline-notifications";
+import { purgeWithdrawnUserPrivateData } from "./purge-withdrawn-user-private-data";
 
 /**
  * 모든 정기 작업의 등록 지점입니다.
@@ -36,5 +38,21 @@ export const scheduledJobs: readonly ScheduledJob[] = [
     timezone: env.alioRecentHistorySyncTimezone,
     runOnStart: false,
     execute: backfillAlioHistory,
+  },
+  {
+    name: "job-deadline-notification",
+    enabled: env.jobDeadlineNotificationEnabled,
+    schedule: env.jobDeadlineNotificationSchedule,
+    timezone: env.jobDeadlineNotificationTimezone,
+    runOnStart: env.jobDeadlineNotificationRunOnStart,
+    execute: sendJobDeadlineNotifications,
+  },
+  {
+    name: "user-withdrawal-private-data-purge",
+    enabled: env.userWithdrawalPurgeEnabled,
+    schedule: env.userWithdrawalPurgeSchedule,
+    timezone: env.userWithdrawalPurgeTimezone,
+    runOnStart: env.userWithdrawalPurgeRunOnStart,
+    execute: purgeWithdrawnUserPrivateData,
   },
 ];

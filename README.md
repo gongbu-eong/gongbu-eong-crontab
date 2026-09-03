@@ -50,8 +50,14 @@ npm run sync:recent-history
 npm run sync:history-backfill
 ```
 
-성공하면 다음과 같은 집계가 출력되고 `job_posting_sync_runs`에도 실행 결과가
-남습니다.
+탈퇴 후 30일이 지난 회원의 개인정보를 정리합니다.
+
+```powershell
+npm run purge:withdrawals
+```
+
+ALIO 동기화 작업이 성공하면 다음과 같은 집계가 출력되고
+`job_posting_sync_runs`에도 실행 결과가 남습니다.
 
 ```json
 {
@@ -91,6 +97,8 @@ GET http://localhost:4001/jobs
 POST http://localhost:4001/jobs/alio-active-sync/run
 POST http://localhost:4001/jobs/alio-recent-history-sync/run
 POST http://localhost:4001/jobs/alio-history-backfill/run
+POST http://localhost:4001/jobs/job-deadline-notification/run
+POST http://localhost:4001/jobs/user-withdrawal-private-data-purge/run
 ```
 
 쿼리 파라미터와 요청 본문은 필요하지 않습니다. 요청 접수 시 `202`, 동일 작업이
@@ -123,10 +131,27 @@ ALIO_RECENT_HISTORY_DAYS=30
 ALIO_HISTORY_MONTHS=13
 ALIO_SYNC_LOCK_WAIT_MS=600000
 ALIO_PAGE_SIZE=1000
+
+JOB_DEADLINE_NOTIFICATION_ENABLED=true
+JOB_DEADLINE_NOTIFICATION_SCHEDULE=0 8 * * *
+JOB_DEADLINE_NOTIFICATION_TIMEZONE=Asia/Seoul
+JOB_DEADLINE_NOTIFICATION_RUN_ON_START=false
+JOB_DEADLINE_NOTIFICATION_TEMPLATE_CODE=
+
+USER_WITHDRAWAL_PURGE_ENABLED=true
+USER_WITHDRAWAL_PURGE_SCHEDULE=0 * * * *
+USER_WITHDRAWAL_PURGE_TIMEZONE=Asia/Seoul
+USER_WITHDRAWAL_PURGE_RUN_ON_START=false
+USER_WITHDRAWAL_PURGE_BATCH_SIZE=100
 ```
 
 `alio-active-sync`는 매시간 정각, `alio-recent-history-sync`는 매일
-자정 20분에 실행됩니다. `alio-history-backfill`은 수동 전용입니다.
+자정 20분에 실행됩니다. `job-deadline-notification`은 매일 오전 8시에
+찜한 공고의 마감 임박 알림 대상을 `notification_dispatch_queue`에 적재합니다.
+`user-withdrawal-private-data-purge`는 매시간 정각에 탈퇴 후 30일이 지난
+회원의 개인정보를 정리합니다. 한 번 실행할 때 배치 크기만큼 여러 번 이어서
+처리하므로 대량 탈퇴 데이터가 쌓여도 다음 실행까지 불필요하게 밀리지 않습니다.
+`alio-history-backfill`은 수동 전용입니다.
 
 두 ALIO 작업이 지연이나 수동 호출로 겹치면 PostgreSQL 공통 advisory lock으로
 한 작업만 실행하고 다른 작업은 최대 10분간 순서를 기다립니다. 먼저 실행한

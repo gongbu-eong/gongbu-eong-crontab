@@ -11,15 +11,19 @@
     "cron:once": "tsx src/run-once.ts",
     "sync:active": "tsx src/run-once.ts alio-active-sync",
     "sync:recent-history": "tsx src/run-once.ts alio-recent-history-sync",
-    "sync:history-backfill": "tsx src/run-once.ts alio-history-backfill"
+    "sync:history-backfill": "tsx src/run-once.ts alio-history-backfill",
+    "notify:deadline": "tsx src/run-once.ts job-deadline-notification",
+    "purge:withdrawals": "tsx src/run-once.ts user-withdrawal-private-data-purge"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
+    "mssql": "^12.7.0",
     "node-cron": "^4.6.0",
     "pg": "^8.22.0",
     "tsx": "^4.23.1"
   },
   "devDependencies": {
+    "@types/mssql": "^12.3.0",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "typescript": "^5"
