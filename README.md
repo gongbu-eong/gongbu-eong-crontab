@@ -3,6 +3,9 @@
 ALIO의 공공기관 채용정보 API를 매시간 수집하여
 PostgreSQL에 신규 공고를 추가하고 변경 공고를 갱신하는 배치 프로젝트입니다.
 
+커뮤니티 AI 글·댓글·대댓글의 매일 00:01 예약 생성도 지원합니다.
+[설정, SQL, 공개 시각 및 실패 복구 안내](docs/community-daily-seed.md)를 확인하세요.
+
 ## 준비
 
 1. [DB 마이그레이션](docs/database/001_job_posting_batch.sql)을 먼저 실행합니다.
