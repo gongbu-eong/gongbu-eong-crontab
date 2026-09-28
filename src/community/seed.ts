@@ -3,7 +3,7 @@ import type { QueryResultRow } from "pg";
 import type { GenerateJson } from "./ai";
 import { summarizeSeedError } from "./errors";
 import {
-  CATEGORIES, personasSchema, planSchema, threadSchema, sample, seoulDay, scheduleDrafts,
+  CATEGORIES, COMMUNITY_TEXT_LIMITS, personasSchema, planSchema, threadSchema, sample, seoulDay, scheduleDrafts,
   validatePersonas, validatePlan, validateThread,
   type Actor, type Draft, type Persona, type Topic,
 } from "./content";
@@ -73,7 +73,7 @@ export async function runCommunitySeed(options: {
         const keys = missing.map((actor) => actor.key);
         stage = "generate_personas";
         const generated = await options.generate("community_personas", personasSchema, {
-          task: "각 key에 대해 가상 취업 준비생의 성인 나이대, 상황, 일관된 말투를 창작하세요. 존댓말/반말 및 연령대를 다양하게 분산하세요. ageGroup 80자, background 400자, tone 300자 이하로 작성하세요.", keys,
+          task: "각 key에 대해 가상 취업 준비생의 성인 나이대, 상황, 일관된 말투를 창작하세요. 존댓말/반말 및 연령대를 다양하게 분산하세요. 인물 설정은 게시글이 아닌 내부 참고 자료이므로 핵심만 짧고 간결하게 작성하세요.", keys,
         }, (value) => validatePersonas(value, keys));
         stage = "save_personas";
         for (const candidate of missing) {
@@ -100,7 +100,7 @@ export async function runCommunitySeed(options: {
     if (!plan.length) {
       stage = "generate_plan";
       plan = await options.generate("community_day_plan", planSchema, {
-        task: `서로 다른 주제 ${run.post_count}개를 기획하세요. 각 scenario는 600자 이하로 작성하세요. 특정 주제나 말다툼에 편중하지 말고 다양한 카테고리와 대화 상황을 섞으세요. 과거 제목과 중복하지 마세요.`,
+        task: `서로 다른 주제 ${run.post_count}개를 기획하세요. 각 scenario는 내부 기획용으로 핵심만 짧고 간결하게 작성하세요. 특정 주제나 말다툼에 편중하지 말고 다양한 카테고리와 대화 상황을 섞으세요. 과거 제목과 중복하지 마세요.`,
         date: day, count: run.post_count, categories: CATEGORIES, previousTitles,
       }, (value) => validatePlan(value, run.post_count));
       stage = "save_plan";
@@ -120,7 +120,7 @@ export async function runCommunitySeed(options: {
       });
       stage = `generate_thread:${index + 1}/${run.post_count}`;
       const thread = await options.generate("community_thread", threadSchema, {
-        task: "게시글 1개와 그에 자연스럽게 이어지는 댓글/대댓글 합계 3~10개를 창작하세요. 제목 120자, 본문 5000자, 각 댓글 500자 이하. parent는 이 배열의 앞선 원댓글 인덱스(0부터), 원댓글은 null. 최소 1개 대댓글과 다른 사람의 댓글이 있어야 합니다. 짧은 반응과 구체적 답변을 섞고 대화 길이를 매번 달리하세요.",
+        task: `게시글 1개와 그에 자연스럽게 이어지는 댓글/대댓글 합계 3~10개를 창작하세요. 실제 커뮤니티 입력 제한과 동일하게 제목 ${COMMUNITY_TEXT_LIMITS.title}자, 본문 ${COMMUNITY_TEXT_LIMITS.content}자, 각 댓글 및 대댓글 ${COMMUNITY_TEXT_LIMITS.comment}자 이하로 작성하세요. 공백과 줄바꿈을 포함하며 JavaScript string.length 기준입니다. 이모지는 여러 글자로 셀 수 있으니 상한보다 여유 있게 작성하세요. parent는 이 배열의 앞선 원댓글 인덱스(0부터), 원댓글은 null. 최소 1개 대댓글과 다른 사람의 댓글이 있어야 합니다. 짧은 반응과 구체적 답변을 섞고 대화 길이를 매번 달리하세요.`,
         date: day, topic: plan[index], postAuthor: author,
         participants: participants.map(({ key, persona }) => ({ key, ...persona })),
         previousTitles: [...previousTitles, ...drafts.map((draft) => draft.thread.title)],

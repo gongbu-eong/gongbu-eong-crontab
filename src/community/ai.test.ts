@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createGenerator } from "./ai";
+import { personasSchema, threadSchema, validatePersonas } from "./content";
 
 const config = { apiKey: "test-only-key", model: "test-model", timeoutMs: 1000, retries: 2, sleep: async () => {} };
 const completed = () => Response.json({ status: "completed", output: [{ content: [{ type: "output_text", text: '{"ok":true}' }] }] });
@@ -16,6 +17,34 @@ test("structured response request uses a timeout, no storage, schema and system 
     return completed();
   } });
   assert.deepEqual(await generate("test", {}, {}, (value) => value), { ok: true });
+});
+
+test("the outgoing strict schema carries the actual community form text limits", async () => {
+  const generate = createGenerator({ ...config, fetch: async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    const properties = body.text.format.schema.properties;
+    assert.equal(body.text.format.strict, true);
+    assert.equal(properties.title.maxLength, 120);
+    assert.equal(properties.content.maxLength, 5000);
+    assert.equal(properties.comments.items.properties.content.maxLength, 500);
+    assert.equal(properties.comments.items.properties.content.minLength, 1);
+    assert.match(properties.title.description, /UTF-16/);
+    return completed();
+  } });
+  await generate("community_thread", threadSchema, {}, (value) => value);
+});
+
+test("a 302-character persona tone succeeds on the first request and is not truncated", async () => {
+  let calls = 0;
+  const persona = { key: "a0", ageGroup: "20s", background: "student", tone: "t".repeat(302) };
+  const generate = createGenerator({ ...config, fetch: async (_url, init) => {
+    calls++;
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.text.format.schema.properties.personas.items.properties.tone.maxLength, undefined);
+    return Response.json({ status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify({ personas: [persona] }) }] }] });
+  } });
+  assert.deepEqual(await generate("community_personas", personasSchema, {}, (value) => validatePersonas(value, ["a0"])), [persona]);
+  assert.equal(calls, 1);
 });
 
 test("transient and validation failures retry but never fall back to template text", async () => {

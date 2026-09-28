@@ -52,12 +52,14 @@ test("daily seeding is atomic, resumable, time ordered and idempotent", async (t
     release(destroy) { released++; destroyed = Boolean(destroy); if (destroy) locked = false; },
   };
   const generate: GenerateJson = async (name, _schema, input, validate) => {
-    const args = input as { keys: string[]; count: number; postAuthor: string; participants: { key: string }[] };
+    const args = input as { task: string; keys: string[]; count: number; postAuthor: string; participants: { key: string }[] };
     if (name === "community_personas") {
       personaCalls++;
-      return validate({ personas: args.keys.map((key) => ({ key, ageGroup: "20s", background: "fictional student", tone: "casual" })) });
+      assert.doesNotMatch(args.task, /300자/);
+      return validate({ personas: args.keys.map((key) => ({ key, ageGroup: "20s", background: "fictional student", tone: "t".repeat(302) })) });
     }
     if (name === "community_day_plan") return validate({ topics: Array.from({ length: args.count }, (_, index) => ({ category: "자유·잡담", scenario: `topic ${index}` })) });
+    assert.match(args.task, /제목 120자, 본문 5000자, 각 댓글 및 대댓글 500자 이하/);
     if (failGeneration && generated === 1) throw new Error("simulated AI failure");
     generated++;
     return validate({ author: args.postAuthor, title: `generated ${clock.toISOString()} ${generated}`, content: "fixture body", comments: [
@@ -84,6 +86,8 @@ test("daily seeding is atomic, resumable, time ordered and idempotent", async (t
       assert.equal(generated, result.posts);
       assert.equal(result.comments, result.posts! * 3);
       assert.equal(personaCalls, 1);
+      const personas = await database.query<{ length: number }>("SELECT length(persona->>'tone') AS length FROM community_seed_personas");
+      assert.ok(personas.rows.every((row) => row.length === 302));
       assert.equal((await database.query<{ error_message: string | null }>("SELECT error_message FROM community_seed_runs")).rows[0].error_message, null);
       const invalid = await database.query(`SELECT comments.id FROM community_comments comments
         JOIN community_posts posts ON posts.id = comments.post_id

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sample, scheduleDrafts, seoulDay, validateThread, validatePersonas, validatePlan, type Actor, type Draft } from "./content";
+import { COMMUNITY_TEXT_LIMITS, sample, scheduleDrafts, seoulDay, validateThread, validatePersonas, validatePlan, type Actor, type Draft } from "./content";
 
 const actors: Actor[] = ["a0", "a1", "a2"].map((key) => ({ key, userId: key, persona: { ageGroup: "20s", background: "student", tone: "casual" } }));
 const thread = { author: "a0", title: "title", content: "content", comments: [
@@ -61,11 +61,46 @@ test("personas and daily plans must exactly match requested authors and counts",
 });
 
 test("text validation identifies the failing field and limit without including generated text", () => {
-  assert.throws(() => validatePersonas({ personas: [{ key: "a0", ...actors[0].persona, tone: "private".repeat(50) }] }, ["a0"]), (error: Error) => {
-    assert.match(error.message, /persona.tone must be non-empty and <= 300 characters \(received 350\)/);
+  assert.throws(() => validateThread({ ...thread, title: "private".repeat(18) }, actors, "a0", []), (error: Error) => {
+    assert.match(error.message, /thread.title must be non-empty and <= 120 characters \(received 126\)/);
     assert.doesNotMatch(error.message, /private/);
     return true;
   });
-  assert.throws(() => validatePlan({ topics: [{ category: "자유·잡담", scenario: "x".repeat(601) }] }, 1), /topic.scenario.*<= 600/);
   assert.throws(() => validateThread({ ...thread, comments: [{ ...thread.comments[0], content: "x".repeat(501) }, ...thread.comments.slice(1)] }, actors, "a0", []), /comments\[0\].content.*<= 500/);
+});
+
+test("internal personas and plans do not inherit arbitrary public-content length limits", () => {
+  const persona = { key: "a0", ageGroup: "a".repeat(81), background: "b".repeat(401), tone: "t".repeat(302) };
+  assert.deepEqual(validatePersonas({ personas: [persona] }, ["a0"]), [persona]);
+  const topic = { category: "자유·잡담", scenario: "s".repeat(601) };
+  assert.deepEqual(validatePlan({ topics: [topic] }, 1), [topic]);
+  for (const field of ["ageGroup", "background", "tone"]) {
+    for (const invalid of ["", " \n ", null, 123]) {
+      assert.throws(() => validatePersonas({ personas: [{ ...persona, [field]: invalid }] }, ["a0"]), /must be a non-empty string/);
+    }
+  }
+  assert.throws(() => validatePlan({ topics: [{ ...topic, scenario: " " }] }, 1), /topic.scenario must be a non-empty string/);
+});
+
+test("public text boundaries match the community form and API for posts, comments and replies", () => {
+  assert.deepEqual(COMMUNITY_TEXT_LIMITS, { title: 120, content: 5000, comment: 500 });
+  const boundary = {
+    ...thread, title: "가".repeat(120), content: "나".repeat(5000),
+    comments: thread.comments.map((comment, index) => ({ ...comment, content: String(index).repeat(500) })),
+  };
+  assert.deepEqual(validateThread(boundary, actors, "a0", []), boundary);
+  assert.throws(() => validateThread({ ...boundary, title: `${boundary.title}x` }, actors, "a0", []), /thread.title.*<= 120/);
+  assert.throws(() => validateThread({ ...boundary, content: `${boundary.content}x` }, actors, "a0", []), /thread.content.*<= 5000/);
+  for (const index of [0, 1]) {
+    assert.throws(() => validateThread({ ...boundary, comments: boundary.comments.map((comment, i) => ({
+      ...comment, content: i === index ? `${comment.content}x` : comment.content,
+    })) }, actors, "a0", []), new RegExp(`comments\\[${index}\\].content.*<= 500`));
+  }
+});
+
+test("public text still counts emoji as UTF-16 code units like HTML maxLength and the API", () => {
+  const title = "\u{1F642}".repeat(60);
+  assert.equal(title.length, 120);
+  assert.equal(validateThread({ ...thread, title }, actors, "a0", []).title, title);
+  assert.throws(() => validateThread({ ...thread, title: `${title}x` }, actors, "a0", []), /thread.title.*received 121/);
 });

@@ -4,6 +4,9 @@ export const CATEGORIES = [
   "자유·잡담", "공시 정보", "공부·스터디", "질문·답변", "합격·면접 후기", "유머·짤",
 ] as const;
 
+// Matches CommunityWritePage/CommunityDetailPage and community.service.ts.
+export const COMMUNITY_TEXT_LIMITS = { title: 120, content: 5000, comment: 500 } as const;
+
 export type Persona = { ageGroup: string; background: string; tone: string };
 export type Actor = { key: string; userId: string; persona: Persona };
 export type Topic = { category: string; scenario: string };
@@ -18,7 +21,13 @@ export type Draft = { topic: Topic; thread: Thread };
 export function objectSchema(properties: Record<string, unknown>) {
   return { type: "object", properties, required: Object.keys(properties), additionalProperties: false };
 }
-const stringSchema = { type: "string" };
+const stringSchema = { type: "string", minLength: 1 };
+function boundedStringSchema(maxLength: number) {
+  return {
+    ...stringSchema, maxLength,
+    description: `Use at most ${maxLength} UTF-16 code units (JavaScript string.length), including spaces and newlines. Leave room for emoji that use multiple code units.`,
+  };
+}
 export const personasSchema = objectSchema({
   personas: {
     type: "array", items: objectSchema({
@@ -30,9 +39,11 @@ export const planSchema = objectSchema({
   topics: { type: "array", items: objectSchema({ category: { type: "string", enum: CATEGORIES }, scenario: stringSchema }) },
 });
 export const threadSchema = objectSchema({
-  author: stringSchema, title: stringSchema, content: stringSchema,
+  author: stringSchema,
+  title: boundedStringSchema(COMMUNITY_TEXT_LIMITS.title),
+  content: boundedStringSchema(COMMUNITY_TEXT_LIMITS.content),
   comments: { type: "array", items: objectSchema({
-    author: stringSchema, content: stringSchema, parent: { type: ["integer", "null"] },
+    author: stringSchema, content: boundedStringSchema(COMMUNITY_TEXT_LIMITS.comment), parent: { type: ["integer", "null"] },
   }) },
 });
 
@@ -48,6 +59,12 @@ function string(value: unknown, max: number, field: string): string {
   return value.trim();
 }
 
+// Internal planning text is not a public post field. The AI response size cap still applies.
+function internalText(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`Invalid generated text: ${field} must be a non-empty string`);
+  return value.trim();
+}
+
 export function validatePersonas(value: unknown, keys: string[]) {
   const items = record(value).personas;
   if (!Array.isArray(items) || items.length !== keys.length) throw new Error("Incorrect persona count");
@@ -57,7 +74,12 @@ export function validatePersonas(value: unknown, keys: string[]) {
     const key = string(row.key, 30, "persona.key");
     if (!keys.includes(key) || seen.has(key)) throw new Error("Unknown or duplicate persona author");
     seen.add(key);
-    return { key, ageGroup: string(row.ageGroup, 80, "persona.ageGroup"), background: string(row.background, 400, "persona.background"), tone: string(row.tone, 300, "persona.tone") };
+    return {
+      key,
+      ageGroup: internalText(row.ageGroup, "persona.ageGroup"),
+      background: internalText(row.background, "persona.background"),
+      tone: internalText(row.tone, "persona.tone"),
+    };
   });
 }
 
@@ -68,7 +90,7 @@ export function validatePlan(value: unknown, count: number): Topic[] {
   return items.map((item) => {
     const row = record(item);
     const category = string(row.category, 40, "topic.category");
-    const scenario = string(row.scenario, 600, "topic.scenario");
+    const scenario = internalText(row.scenario, "topic.scenario");
     if (!(CATEGORIES as readonly string[]).includes(category) || seen.has(scenario)) throw new Error("Invalid or duplicate topic");
     seen.add(scenario);
     return { category, scenario };
@@ -79,12 +101,12 @@ export function validateThread(value: unknown, actors: Actor[], author: string, 
   const row = record(value);
   const keys = new Set(actors.map((actor) => actor.key));
   if (row.author !== author || !keys.has(author)) throw new Error("Invalid post author");
-  const title = string(row.title, 120, "thread.title");
+  const title = string(row.title, COMMUNITY_TEXT_LIMITS.title, "thread.title");
   const normalizedTitle = title.replace(/\s/g, "").toLowerCase();
   if (previousTitles.some((previous) => previous.replace(/\s/g, "").toLowerCase() === normalizedTitle)) {
     throw new Error("Duplicate generated title");
   }
-  const content = string(row.content, 5000, "thread.content");
+  const content = string(row.content, COMMUNITY_TEXT_LIMITS.content, "thread.content");
   if (!Array.isArray(row.comments) || row.comments.length < 3 || row.comments.length > 10) throw new Error("Expected 3-10 comments including replies");
   const comments: Thread["comments"] = [];
   const texts = new Set<string>();
@@ -96,7 +118,7 @@ export function validateThread(value: unknown, actors: Actor[], author: string, 
     if (parent !== null && (typeof parent !== "number" || !Number.isInteger(parent) || parent < 0 || parent >= index || comments[parent].parent !== null)) {
       throw new Error("Reply must reference an earlier top-level comment in this thread");
     }
-    const text = string(comment.content, 500, `comments[${index}].content`);
+    const text = string(comment.content, COMMUNITY_TEXT_LIMITS.comment, `comments[${index}].content`);
     if (texts.has(text)) throw new Error("Duplicate comment content");
     texts.add(text);
     comments.push({ author: commentAuthor, content: text, parent: parent as number | null });
