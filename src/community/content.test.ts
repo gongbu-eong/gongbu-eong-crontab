@@ -59,3 +59,13 @@ test("personas and daily plans must exactly match requested authors and counts",
   assert.throws(() => validatePlan({ topics: [] }, 3));
   assert.equal(sample(actors, 3).length, new Set(sample(actors, 3)).size);
 });
+
+test("text validation identifies the failing field and limit without including generated text", () => {
+  assert.throws(() => validatePersonas({ personas: [{ key: "a0", ...actors[0].persona, tone: "private".repeat(50) }] }, ["a0"]), (error: Error) => {
+    assert.match(error.message, /persona.tone must be non-empty and <= 300 characters \(received 350\)/);
+    assert.doesNotMatch(error.message, /private/);
+    return true;
+  });
+  assert.throws(() => validatePlan({ topics: [{ category: "자유·잡담", scenario: "x".repeat(601) }] }, 1), /topic.scenario.*<= 600/);
+  assert.throws(() => validateThread({ ...thread, comments: [{ ...thread.comments[0], content: "x".repeat(501) }, ...thread.comments.slice(1)] }, actors, "a0", []), /comments\[0\].content.*<= 500/);
+});

@@ -4,6 +4,7 @@ import test from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { runCommunitySeed, type SeedClient } from "./seed";
 import type { GenerateJson } from "./ai";
+import { summarizeSeedError } from "./errors";
 
 test("daily seeding is atomic, resumable, time ordered and idempotent", async (t) => {
   const database = new PGlite();
@@ -23,10 +24,12 @@ test("daily seeding is atomic, resumable, time ordered and idempotent", async (t
   let locked = false;
   let failInsert = false;
   let failGeneration = false;
+  let failErrorRecording = false;
   let slowPublication = false;
   let generated = 0;
   let personaCalls = 0;
   let released = 0;
+  let destroyed = false;
   const client: SeedClient = {
     async query(sql, values) {
       if (sql.includes("pg_try_advisory_lock")) {
@@ -36,11 +39,17 @@ test("daily seeding is atomic, resumable, time ordered and idempotent", async (t
       }
       if (sql.includes("pg_advisory_unlock")) { locked = false; return { rows: [] }; }
       if (sql === "SELECT clock_timestamp() AS current_time") return { rows: [{ current_time: clock }] } as never;
-      if (failInsert && sql.includes("INSERT INTO public.community_comments")) throw new Error("simulated insert failure");
+      if (failInsert && sql.includes("INSERT INTO public.community_comments")) {
+        throw Object.assign(new Error("private row content must not be logged"), {
+          code: "23503", table: "community_comments", constraint: "community_comments_user_id_fkey",
+          detail: "private account data",
+        });
+      }
+      if (failErrorRecording && sql.includes("SET status = 'failed'")) throw new Error("connection terminated");
       if (slowPublication && sql.includes("INSERT INTO public.community_posts")) clock = new Date("2026-09-25T23:59:59+09:00");
       return database.query(sql, values);
     },
-    release() { released++; },
+    release(destroy) { released++; destroyed = Boolean(destroy); if (destroy) locked = false; },
   };
   const generate: GenerateJson = async (name, _schema, input, validate) => {
     const args = input as { keys: string[]; count: number; postAuthor: string; participants: { key: string }[] };
@@ -65,6 +74,8 @@ test("daily seeding is atomic, resumable, time ordered and idempotent", async (t
       await assert.rejects(run(), /AI failure/);
       const state = await database.query<{ status: string; count: number }>("SELECT status, jsonb_array_length(drafts) AS count FROM community_seed_runs");
       assert.deepEqual(state.rows[0], { status: "failed", count: 1 });
+      const failure = await database.query<{ error_message: string }>("SELECT error_message FROM community_seed_runs");
+      assert.match(failure.rows[0].error_message, /stage=generate_thread:2\/\d+.*simulated AI failure/);
       assert.equal((await database.query("SELECT * FROM community_posts")).rows.length, 0);
       failGeneration = false;
       const result = await run();
@@ -73,6 +84,7 @@ test("daily seeding is atomic, resumable, time ordered and idempotent", async (t
       assert.equal(generated, result.posts);
       assert.equal(result.comments, result.posts! * 3);
       assert.equal(personaCalls, 1);
+      assert.equal((await database.query<{ error_message: string | null }>("SELECT error_message FROM community_seed_runs")).rows[0].error_message, null);
       const invalid = await database.query(`SELECT comments.id FROM community_comments comments
         JOIN community_posts posts ON posts.id = comments.post_id
         LEFT JOIN community_comments parent ON parent.id = comments.parent_comment_id
@@ -96,7 +108,11 @@ test("daily seeding is atomic, resumable, time ordered and idempotent", async (t
       clock = new Date("2026-09-23T00:01:00+09:00");
       const previousCount = (await database.query("SELECT * FROM community_posts")).rows.length;
       failInsert = true;
-      await assert.rejects(run(), /insert failure/);
+      await assert.rejects(run(), /PostgreSQL 23503/);
+      const failure = await database.query<{ error_message: string }>("SELECT error_message FROM community_seed_runs WHERE seed_date = '2026-09-23'");
+      assert.match(failure.rows[0].error_message, /stage=publish_comment:post=1\/\d+,comment=1/);
+      assert.match(failure.rows[0].error_message, /foreign key violation; table=community_comments; constraint=community_comments_user_id_fkey/);
+      assert.doesNotMatch(failure.rows[0].error_message, /private/);
       assert.equal((await database.query("SELECT * FROM community_posts")).rows.length, previousCount);
       const before = generated;
       failInsert = false;
@@ -126,9 +142,44 @@ test("daily seeding is atomic, resumable, time ordered and idempotent", async (t
       slowPublication = false;
       assert.equal((await database.query("SELECT * FROM community_posts")).rows.length, previousCount);
     });
+    await t.test("resume preflight failures replace stale generic errors without losing drafts", async () => {
+      clock = new Date("2026-09-25T00:01:00+09:00");
+      const before = generated;
+      await assert.rejects(runCommunitySeed({ connect: async () => client, generate, model: "changed-model", now: () => clock }), /original OPENAI_MODEL/);
+      const failure = await database.query<{ error_message: string }>("SELECT error_message FROM community_seed_runs WHERE seed_date = '2026-09-25'");
+      assert.match(failure.rows[0].error_message, /stage=check_schedule_and_model.*original OPENAI_MODEL/);
+      assert.equal(generated, before);
+      assert.equal((await run()).status, "completed");
+      assert.equal(generated, before);
+    });
+    await t.test("a failed error-record update preserves the original failure in job logs and discards the connection", async () => {
+      clock = new Date("2026-09-26T00:01:00+09:00");
+      const before = (await database.query("SELECT * FROM community_posts")).rows.length;
+      failInsert = true;
+      failErrorRecording = true;
+      await assert.rejects(run(), (error: Error) => {
+        assert.match(error.message, /stage=publish_comment:.*PostgreSQL 23503/);
+        assert.match(error.message, /failure could not be saved/);
+        assert.doesNotMatch(error.message, /private/);
+        return true;
+      });
+      assert.equal(destroyed, true);
+      assert.equal(locked, false);
+      assert.equal((await database.query("SELECT * FROM community_posts")).rows.length, before);
+      failInsert = false;
+      failErrorRecording = false;
+      assert.equal((await run()).status, "completed");
+    });
     assert.ok(released >= 8);
     assert.equal(locked, false);
   } finally {
     await database.close();
   }
+});
+
+test("failure summaries remove credentials and do not copy PostgreSQL row values", () => {
+  const summary = summarizeSeedError(new Error("GPT_API_KEY=secret\nBearer private-token postgres://user:password@db.test/database sk-private-key"));
+  assert.doesNotMatch(summary, /secret|private-token|user:password|sk-private-key|\n/);
+  assert.match(summary, /redacted/);
+  assert.equal(summarizeSeedError(Object.assign(new Error("private user values"), { code: "23514", constraint: "status_check" })), "PostgreSQL 23514; check constraint violation; constraint=status_check");
 });

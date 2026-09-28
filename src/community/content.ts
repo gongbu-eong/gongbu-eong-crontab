@@ -41,8 +41,10 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function string(value: unknown, max: number): string {
-  if (typeof value !== "string" || !value.trim() || value.length > max) throw new Error("Invalid generated text length");
+function string(value: unknown, max: number, field: string): string {
+  if (typeof value !== "string" || !value.trim() || value.length > max) {
+    throw new Error(`Invalid generated text length: ${field} must be non-empty and <= ${max} characters (received ${typeof value === "string" ? value.length : typeof value})`);
+  }
   return value.trim();
 }
 
@@ -52,10 +54,10 @@ export function validatePersonas(value: unknown, keys: string[]) {
   const seen = new Set<string>();
   return items.map((item): Persona & { key: string } => {
     const row = record(item);
-    const key = string(row.key, 30);
+    const key = string(row.key, 30, "persona.key");
     if (!keys.includes(key) || seen.has(key)) throw new Error("Unknown or duplicate persona author");
     seen.add(key);
-    return { key, ageGroup: string(row.ageGroup, 80), background: string(row.background, 400), tone: string(row.tone, 300) };
+    return { key, ageGroup: string(row.ageGroup, 80, "persona.ageGroup"), background: string(row.background, 400, "persona.background"), tone: string(row.tone, 300, "persona.tone") };
   });
 }
 
@@ -65,8 +67,8 @@ export function validatePlan(value: unknown, count: number): Topic[] {
   const seen = new Set<string>();
   return items.map((item) => {
     const row = record(item);
-    const category = string(row.category, 40);
-    const scenario = string(row.scenario, 600);
+    const category = string(row.category, 40, "topic.category");
+    const scenario = string(row.scenario, 600, "topic.scenario");
     if (!(CATEGORIES as readonly string[]).includes(category) || seen.has(scenario)) throw new Error("Invalid or duplicate topic");
     seen.add(scenario);
     return { category, scenario };
@@ -77,24 +79,24 @@ export function validateThread(value: unknown, actors: Actor[], author: string, 
   const row = record(value);
   const keys = new Set(actors.map((actor) => actor.key));
   if (row.author !== author || !keys.has(author)) throw new Error("Invalid post author");
-  const title = string(row.title, 120);
+  const title = string(row.title, 120, "thread.title");
   const normalizedTitle = title.replace(/\s/g, "").toLowerCase();
   if (previousTitles.some((previous) => previous.replace(/\s/g, "").toLowerCase() === normalizedTitle)) {
     throw new Error("Duplicate generated title");
   }
-  const content = string(row.content, 5000);
+  const content = string(row.content, 5000, "thread.content");
   if (!Array.isArray(row.comments) || row.comments.length < 3 || row.comments.length > 10) throw new Error("Expected 3-10 comments including replies");
   const comments: Thread["comments"] = [];
   const texts = new Set<string>();
   for (const [index, item] of row.comments.entries()) {
     const comment = record(item);
-    const commentAuthor = string(comment.author, 30);
+    const commentAuthor = string(comment.author, 30, `comments[${index}].author`);
     if (!keys.has(commentAuthor)) throw new Error("Invalid comment author");
     const parent = comment.parent;
     if (parent !== null && (typeof parent !== "number" || !Number.isInteger(parent) || parent < 0 || parent >= index || comments[parent].parent !== null)) {
       throw new Error("Reply must reference an earlier top-level comment in this thread");
     }
-    const text = string(comment.content, 500);
+    const text = string(comment.content, 500, `comments[${index}].content`);
     if (texts.has(text)) throw new Error("Duplicate comment content");
     texts.add(text);
     comments.push({ author: commentAuthor, content: text, parent: parent as number | null });

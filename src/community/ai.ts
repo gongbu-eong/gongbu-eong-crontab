@@ -1,7 +1,12 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { diagnosticCode, summarizeSeedError } from "./errors";
 
 export type GenerateJson = <T>(name: string, schema: Record<string, unknown>, input: unknown, validate: (value: unknown) => T) => Promise<T>;
 const defaultFailureReason = "network or generated JSON validation error";
+const quotaCodes = new Set([
+  "insufficient_quota", "credit_balance_exhausted", "billing_hard_limit_reached",
+  "organization_spend_limit_exceeded", "project_spend_limit_exceeded", "organization_usage_limit_exceeded",
+]);
 
 const instructions = `
 공부엉이 취업 준비 커뮤니티의 운영용 가상 대화 콘텐츠를 작성한다.
@@ -86,32 +91,58 @@ export function createGenerator(options: {
   const fetcher = options.fetch ?? fetch;
   return async (name, schema, input, validate) => {
     if (!options.apiKey) throw new Error("Set GPT_API_KEY in the crontab environment");
+    let validationFeedback = "";
     for (let attempt = 0; ; attempt++) {
       let retryable = true;
       let reason = defaultFailureReason;
+      let requestId: string | undefined;
+      let retryDelay = Math.min(1000 * 2 ** attempt, 8000);
       try {
         const response = await fetcher("https://api.openai.com/v1/responses", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${options.apiKey}` },
           signal: AbortSignal.timeout(options.timeoutMs),
           body: JSON.stringify({
-            model: options.model, store: false, instructions,
+            model: options.model, store: false,
+            instructions: validationFeedback
+              ? `${instructions}\n[재시도 검증 오류]\n이전 결과가 다음 조건을 위반했습니다. 이 조건을 수정한 새 JSON을 생성하세요: ${validationFeedback}`
+              : instructions,
             input: JSON.stringify(input), max_output_tokens: 12000,
             text: { format: { type: "json_schema", name, schema, strict: true } },
           }),
         });
+        requestId = diagnosticCode(response.headers.get("x-request-id"));
         if (!response.ok) {
           retryable = response.status === 429 || response.status >= 500 || response.status === 408;
           reason = `HTTP ${response.status}`;
-          await response.body?.cancel();
+          const details = await response.json().catch(() => null) as { error?: { code?: unknown; type?: unknown; param?: unknown } } | null;
+          const code = diagnosticCode(details?.error?.code);
+          const type = diagnosticCode(details?.error?.type);
+          const param = diagnosticCode(details?.error?.param);
+          reason += [code && `code=${code}`, type && `type=${type}`, param && `param=${param}`]
+            .filter(Boolean).map((value) => `; ${value}`).join("");
+          if ((code && quotaCodes.has(code)) || type === "insufficient_quota") retryable = false;
+          const wait = retryAfterMs(response.headers.get("retry-after"));
+          if (wait !== undefined) {
+            if (wait > options.timeoutMs) {
+              retryable = false;
+              reason += `; Retry-After=${Math.ceil(wait / 1000)}s exceeds request timeout; retry the job later`;
+            } else {
+              retryDelay = Math.max(retryDelay, wait);
+            }
+          }
           throw new Error(`AI request failed (HTTP ${response.status})`);
         }
         const body = await response.json() as {
           status?: string;
+          incomplete_details?: { reason?: unknown };
+          error?: { code?: unknown };
           output?: { content?: { type?: string; text?: string }[] }[];
         };
         if (body.status !== "completed") {
-          reason = "incomplete response";
+          reason = `incomplete response; status=${diagnosticCode(body.status) ?? "unknown"}`;
+          const detail = diagnosticCode(body.incomplete_details?.reason) ?? diagnosticCode(body.error?.code);
+          if (detail) reason += `; code=${detail}`;
           throw new Error("AI response was not completed");
         }
         const parts = body.output?.flatMap((item) => item.content ?? []) ?? [];
@@ -129,15 +160,17 @@ export function createGenerator(options: {
         try {
           return validate(parsed);
         } catch (error) {
-          reason = `validation: ${safeErrorMessage(error)}`;
+          validationFeedback = summarizeSeedError(error).slice(0, 300);
+          reason = `validation: ${validationFeedback}`;
           throw error;
         }
       } catch (error) {
         if (!retryable || attempt >= options.retries) {
           // Do not propagate provider bodies or generated content into logs.
-          throw new Error(`Community AI generation failed: ${name} (${failureReason(error, reason)})`);
+          const metadata = `model=${options.model}, attempts=${attempt + 1}, timeout_ms=${options.timeoutMs}${requestId ? `, request_id=${requestId}` : ""}`;
+          throw new Error(`Community AI generation failed: ${name} (${failureReason(error, reason)}; ${metadata})`);
         }
-        await (options.sleep ?? delay)(Math.min(1000 * 2 ** attempt, 8000));
+        await (options.sleep ?? delay)(retryDelay);
       }
     }
   };
@@ -147,11 +180,17 @@ function failureReason(error: unknown, reason: string): string {
   if (error instanceof SyntaxError) return "invalid JSON";
   if (reason !== defaultFailureReason) return reason;
   if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) return "request timeout";
-  if (error instanceof Error && error.name) return `network: ${error.name}`;
+  if (error instanceof Error && error.name) {
+    const cause = error.cause as { code?: unknown } | undefined;
+    const code = diagnosticCode(cause?.code);
+    return `network: ${error.name}${code ? `; code=${code}` : ""}`;
+  }
   return reason;
 }
 
-function safeErrorMessage(error: unknown): string {
-  if (!(error instanceof Error) || !error.message.trim()) return "unknown validation error";
-  return error.message.replace(/[\r\n]+/g, " ").slice(0, 180);
+function retryAfterMs(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  const milliseconds = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(milliseconds) && milliseconds >= 0 ? milliseconds : undefined;
 }
