@@ -12,6 +12,7 @@
 *.pem
 *.sql
 !docs/database/20260923_community_daily_seed.sql
+!docs/database/20260928_community_identity_memory.sql
 
 # debug
 npm-debug.log*
@@ -25,3 +26,4 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 *.md
+!docs/community-identity-memory.md

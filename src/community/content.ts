@@ -9,7 +9,7 @@ export const COMMUNITY_TEXT_LIMITS = { title: 120, content: 5000, comment: 500 }
 
 export type Persona = { ageGroup: string; background: string; tone: string };
 export type Actor = { key: string; userId: string; persona: Persona };
-export type Topic = { category: string; scenario: string };
+export type Topic = { category: string; scenario: string; author?: string };
 export type Thread = {
   author: string;
   title: string;
@@ -36,7 +36,7 @@ export const personasSchema = objectSchema({
   },
 });
 export const planSchema = objectSchema({
-  topics: { type: "array", items: objectSchema({ category: { type: "string", enum: CATEGORIES }, scenario: stringSchema }) },
+  topics: { type: "array", items: objectSchema({ author: stringSchema, category: { type: "string", enum: CATEGORIES }, scenario: stringSchema }) },
 });
 export const threadSchema = objectSchema({
   author: stringSchema,
@@ -83,7 +83,7 @@ export function validatePersonas(value: unknown, keys: string[]) {
   });
 }
 
-export function validatePlan(value: unknown, count: number): Topic[] {
+export function validatePlan(value: unknown, count: number, authors?: string[]): Topic[] {
   const items = record(value).topics;
   if (!Array.isArray(items) || items.length !== count) throw new Error("Incorrect topic count");
   const seen = new Set<string>();
@@ -93,7 +93,8 @@ export function validatePlan(value: unknown, count: number): Topic[] {
     const scenario = internalText(row.scenario, "topic.scenario");
     if (!(CATEGORIES as readonly string[]).includes(category) || seen.has(scenario)) throw new Error("Invalid or duplicate topic");
     seen.add(scenario);
-    return { category, scenario };
+    if (authors && (typeof row.author !== "string" || !authors.includes(row.author))) throw new Error("A planned topic must belong to an eligible author");
+    return { category, scenario, ...(authors ? { author: row.author as string } : {}) };
   });
 }
 
