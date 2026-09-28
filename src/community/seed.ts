@@ -98,6 +98,12 @@ export async function runCommunitySeed(options: {
       scheduleDrafts([], day, now());
       const participants = sample(actors, randomInt(3, Math.min(actors.length, 6) + 1));
       const author = participants[0].key;
+      options.progress?.("Community AI draft generation started", {
+        day,
+        generating: index + 1,
+        total: run.post_count,
+        category: plan[index].category,
+      });
       const thread = await options.generate("community_thread", threadSchema, {
         task: "게시글 1개와 그에 자연스럽게 이어지는 댓글/대댓글 합계 3~10개를 창작하세요. 제목 120자, 본문 5000자, 각 댓글 500자 이하. parent는 이 배열의 앞선 원댓글 인덱스(0부터), 원댓글은 null. 최소 1개 대댓글과 다른 사람의 댓글이 있어야 합니다. 짧은 반응과 구체적 답변을 섞고 대화 길이를 매번 달리하세요.",
         date: day, topic: plan[index], postAuthor: author,

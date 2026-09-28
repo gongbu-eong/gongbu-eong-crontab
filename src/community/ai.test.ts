@@ -27,6 +27,8 @@ test("transient and validation failures retry but never fall back to template te
   const broken = createGenerator({ ...config, fetch: async () => { calls++; return Response.json({ status: "incomplete" }); } });
   await assert.rejects(broken("test", {}, {}, (value) => value), /generation failed/);
   assert.equal(calls, 3);
+  const invalid = createGenerator({ ...config, fetch: async () => completed() });
+  await assert.rejects(invalid("test", {}, {}, () => { throw new Error("bad parent"); }), /validation: bad parent/);
 });
 
 test("authentication errors and refusals fail without retrying or leaking response bodies", async () => {

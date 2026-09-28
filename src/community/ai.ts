@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 export type GenerateJson = <T>(name: string, schema: Record<string, unknown>, input: unknown, validate: (value: unknown) => T) => Promise<T>;
+const defaultFailureReason = "network or generated JSON validation error";
 
 const instructions = `
 공부엉이 취업 준비 커뮤니티의 운영용 가상 대화 콘텐츠를 작성한다.
@@ -87,7 +88,7 @@ export function createGenerator(options: {
     if (!options.apiKey) throw new Error("Set GPT_API_KEY in the crontab environment");
     for (let attempt = 0; ; attempt++) {
       let retryable = true;
-      let reason = "network or generated JSON validation error";
+      let reason = defaultFailureReason;
       try {
         const response = await fetcher("https://api.openai.com/v1/responses", {
           method: "POST",
@@ -120,15 +121,37 @@ export function createGenerator(options: {
           throw new Error("AI declined content generation");
         }
         const text = parts.filter((part) => part.type === "output_text").map((part) => part.text ?? "").join("");
-        if (!text || text.length > 200000) throw new Error("Invalid AI output size");
-        return validate(JSON.parse(text));
+        if (!text || text.length > 200000) {
+          reason = "invalid output size";
+          throw new Error("Invalid AI output size");
+        }
+        const parsed = JSON.parse(text);
+        try {
+          return validate(parsed);
+        } catch (error) {
+          reason = `validation: ${safeErrorMessage(error)}`;
+          throw error;
+        }
       } catch (error) {
         if (!retryable || attempt >= options.retries) {
           // Do not propagate provider bodies or generated content into logs.
-          throw new Error(`Community AI generation failed: ${name} (${error instanceof SyntaxError ? "invalid JSON" : reason})`);
+          throw new Error(`Community AI generation failed: ${name} (${failureReason(error, reason)})`);
         }
         await (options.sleep ?? delay)(Math.min(1000 * 2 ** attempt, 8000));
       }
     }
   };
+}
+
+function failureReason(error: unknown, reason: string): string {
+  if (error instanceof SyntaxError) return "invalid JSON";
+  if (reason !== defaultFailureReason) return reason;
+  if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) return "request timeout";
+  if (error instanceof Error && error.name) return `network: ${error.name}`;
+  return reason;
+}
+
+function safeErrorMessage(error: unknown): string {
+  if (!(error instanceof Error) || !error.message.trim()) return "unknown validation error";
+  return error.message.replace(/[\r\n]+/g, " ").slice(0, 180);
 }
