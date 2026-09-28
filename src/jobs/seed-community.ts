@@ -5,7 +5,7 @@ import { createGenerator } from "../community/ai";
 import { runCommunitySeed } from "../community/seed";
 
 export async function seedCommunity() {
-  if (!env.communitySeedApiKey) throw new Error("Community seeding requires COMMUNITY_SEED_API_KEY, GPT_API_KEY or OPENAI_API_KEY");
+  if (!env.communitySeedApiKey) throw new Error("Community seeding requires GPT_API_KEY in the crontab environment");
   const databaseUrl = new URL(env.databaseUrl);
   if (databaseUrl.port === "6543" || databaseUrl.searchParams.get("pgbouncer") === "true") {
     throw new Error("Community seeding requires a direct or session-mode database connection, not transaction pooling");

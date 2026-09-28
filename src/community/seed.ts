@@ -39,7 +39,7 @@ export async function runCommunitySeed(options: {
     let run = existing.rows[0];
     if (run?.status === "completed") return { status: "already_completed", day, posts: run.post_ids.length, comments: run.comment_count };
     scheduleDrafts([], day, now());
-    if (run && run.model !== options.model) throw new Error("Resume with the original COMMUNITY_SEED_MODEL");
+    if (run && run.model !== options.model) throw new Error("Resume with the original OPENAI_MODEL");
     if (!run) {
       const result = await client.query<Run>(`
         INSERT INTO public.community_seed_runs (seed_date, status, post_count, model)

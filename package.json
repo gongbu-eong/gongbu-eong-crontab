@@ -5,7 +5,7 @@
   "scripts": {
     "start": "tsx src/cron.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/alio/mapper.test.ts src/alio/client.test.ts src/alio/date-range.test.ts src/scheduler.test.ts src/community/content.test.ts src/community/ai.test.ts src/community/seed.test.ts",
+    "test": "node --import tsx --test src/alio/mapper.test.ts src/alio/client.test.ts src/alio/date-range.test.ts src/scheduler.test.ts src/config.test.ts src/community/content.test.ts src/community/ai.test.ts src/community/seed.test.ts",
     "seed:community": "tsx src/run-once.ts community-daily-seed",
     "healthcheck": "tsx src/healthcheck.ts",
     "cron": "tsx src/cron.ts",

@@ -84,7 +84,7 @@ export function createGenerator(options: {
 }): GenerateJson {
   const fetcher = options.fetch ?? fetch;
   return async (name, schema, input, validate) => {
-    if (!options.apiKey) throw new Error("Set COMMUNITY_SEED_API_KEY, GPT_API_KEY or OPENAI_API_KEY");
+    if (!options.apiKey) throw new Error("Set GPT_API_KEY in the crontab environment");
     for (let attempt = 0; ; attempt++) {
       let retryable = true;
       let reason = "network or generated JSON validation error";

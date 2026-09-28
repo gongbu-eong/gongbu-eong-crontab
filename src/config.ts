@@ -70,8 +70,8 @@ function integerValue(
 
 export const env = Object.freeze({
   communitySeedEnabled: booleanValue("COMMUNITY_SEED_ENABLED", false),
-  communitySeedApiKey: process.env.COMMUNITY_SEED_API_KEY?.trim() || process.env.GPT_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || "",
-  communitySeedModel: process.env.COMMUNITY_SEED_MODEL?.trim() || "gpt-5.1",
+  communitySeedApiKey: process.env.GPT_API_KEY?.trim() || "",
+  communitySeedModel: process.env.OPENAI_MODEL?.trim() || "gpt-5.1",
   communitySeedRequestTimeoutMs: integerValue("COMMUNITY_SEED_REQUEST_TIMEOUT_MS", 120_000, 1000, 300_000),
   communitySeedRequestRetries: integerValue("COMMUNITY_SEED_REQUEST_RETRIES", 2, 0, 5),
   databaseUrl: required("DATABASE_URL"),
