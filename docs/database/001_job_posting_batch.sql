@@ -163,8 +163,8 @@ END $$;
 CREATE TABLE IF NOT EXISTS public.notification_preferences (
     user_id uuid PRIMARY KEY REFERENCES public.users(id),
     application_deadline_enabled boolean DEFAULT true NOT NULL,
-    application_deadline_days_before int4 DEFAULT 3 NOT NULL,
-    application_deadline_days_before_list int4[] DEFAULT ARRAY[3]::int4[] NOT NULL,
+    application_deadline_days_before int4 DEFAULT 1 NOT NULL,
+    application_deadline_days_before_list int4[] DEFAULT ARRAY[1]::int4[] NOT NULL,
     tailored_job_enabled boolean DEFAULT true NOT NULL,
     marketing_enabled boolean DEFAULT false NOT NULL,
     marketing_agreed_at timestamptz NULL,
@@ -179,8 +179,8 @@ CREATE TABLE IF NOT EXISTS public.notification_preferences (
 
 ALTER TABLE public.notification_preferences
     ADD COLUMN IF NOT EXISTS application_deadline_enabled boolean DEFAULT true NOT NULL,
-    ADD COLUMN IF NOT EXISTS application_deadline_days_before int4 DEFAULT 3 NOT NULL,
-    ADD COLUMN IF NOT EXISTS application_deadline_days_before_list int4[] DEFAULT ARRAY[3]::int4[] NOT NULL,
+    ADD COLUMN IF NOT EXISTS application_deadline_days_before int4 DEFAULT 1 NOT NULL,
+    ADD COLUMN IF NOT EXISTS application_deadline_days_before_list int4[] DEFAULT ARRAY[1]::int4[] NOT NULL,
     ADD COLUMN IF NOT EXISTS marketing_agreed_at timestamptz NULL,
     ADD COLUMN IF NOT EXISTS marketing_revoked_at timestamptz NULL,
     ADD COLUMN IF NOT EXISTS kakao_connected_at timestamptz NULL,

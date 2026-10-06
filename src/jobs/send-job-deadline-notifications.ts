@@ -81,7 +81,7 @@ export async function sendJobDeadlineNotifications(
         WHERE preferences.application_deadline_enabled = true
           AND users.phone IS NOT NULL
           AND users.phone <> ''
-          AND offsets.offset_days IN (0, 3, 7)
+          AND offsets.offset_days IN (0, 1, 3)
           AND (postings.application_end_at AT TIME ZONE $2)::date
                 = ($1::date + offsets.offset_days)
       `,
