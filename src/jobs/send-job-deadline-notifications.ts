@@ -339,7 +339,7 @@ function buildDeadlineAlimtalkMessage(row: CandidateRow) {
     `${remainingDays}일 남아 안내드립니다.`,
     "",
     `공고명: ${jobTitle}`,
-    `마감일시: ${formatKoreanDeadline(row.application_end_at)}`,
+    `마감일시: ${formatKoreanDeadlineDate(row.application_end_at)}`,
     "",
     "자세한 공고 내용과 마감일정을 확인해 주세요.",
   ].join("\n");
@@ -349,7 +349,7 @@ function buildJobTitle(row: CandidateRow) {
   return [row.institution_name, row.title].filter(Boolean).join(" ");
 }
 
-function formatKoreanDeadline(value: Date | string) {
+export function formatKoreanDeadlineDate(value: Date | string) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const parts = new Intl.DateTimeFormat("ko-KR", {
@@ -357,14 +357,11 @@ function formatKoreanDeadline(value: Date | string) {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
   }).formatToParts(date);
   const valueOf = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((part) => part.type === type)?.value ?? "";
 
-  return `${valueOf("year")}.${valueOf("month")}.${valueOf("day")} ${valueOf("hour")}:${valueOf("minute")}`;
+  return `${valueOf("year")}.${valueOf("month")}.${valueOf("day")}`;
 }
 
 function toTimezoneDateString(date: Date, timezone: string) {
